@@ -2,10 +2,14 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., v1.0.0)'
+        required: true
+        type: string
 
 jobs:
   release:
@@ -13,34 +17,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整的git历史
+          fetch-depth: 0
 
-      - name: Get version from tag
+      - name: Get version
         id: get_version
         run: |
-          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" | sed 's/^v//' >> $GITHUB_OUTPUT
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create tag if not exists
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if ! git rev-parse ${{ github.event.inputs.version }} >/dev/null 2>&1; then
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git config --global user.name "github-actions[bot]"
+            git tag ${{ github.event.inputs.version }}
+            git push origin ${{ github.event.inputs.version }}
+          fi
 
       - name: Get Changelog
         id: get_changelog
         run: |
-          previous_tag=$(git tag --sort=-version:refname | grep -A 1 "${{ steps.get_version.outputs.tag }}" | tail -n 1)
-          if [ -z "$previous_tag" ]; then
-            # 如果是第一个tag，则获取所有提交历史
-            echo "changelog<<EOF" >> $GITHUB_OUTPUT
-            git log --pretty=format:"* %s (%h)" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            # 获取两个tag之间的提交历史
-            echo "changelog<<EOF" >> $GITHUB_OUTPUT
-            git log --pretty=format:"* %s (%h)" $previous_tag..${{ steps.get_version.outputs.tag }} >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
+          current_tag="${{ steps.get_version.outputs.tag }}"
+          previous_tag=$(git tag --sort=-version:refname | grep -A 1 "$current_tag" | tail -n 1)
+          
+          {
+            echo 'changelog<<CHANGELOG_EOF'
+            if [ -z "$previous_tag" ] || [ "$previous_tag" = "$current_tag" ]; then
+              git log --pretty=format:"* %s (%h)"
+            else
+              git log --pretty=format:"* %s (%h)" ${previous_tag}..${current_tag}
+            fi
+            echo
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create ZIP archive
         run: |
-          cd custom_components
-          zip -r ../panasonic_cn.zip panasonic_cn
+          cd custom_components/panasonic_cn
+          zip -r ../../panasonic_cn.zip ./*
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -54,7 +74,7 @@ jobs:
             ## Installation
             1. Install HACS if you haven't already
             2. Add this repository to HACS:
-               - URL: `https://github.com/OWNER/panasonic_cn`
+               - URL: `https://github.com/delichik/panasonic_cn`
                - Category: `Integration`
             3. Install the "Panasonic CN" integration
             4. Restart Home Assistant
