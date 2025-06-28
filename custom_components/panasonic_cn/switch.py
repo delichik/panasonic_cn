@@ -7,10 +7,12 @@ from typing import Any, Dict
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import PanasonicCNDataUpdateCoordinator
+from .api.devices.base import PanasonicDevice
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,7 +27,7 @@ async def async_setup_entry(
     
     entities = []
     # Iterate through all devices
-    for device in coordinator.devices.values():
+    for device in coordinator.data.values():
         # Get list of supported entities for the device
         device_entities = device.get_entities()
         
@@ -35,7 +37,7 @@ async def async_setup_entry(
                 entities.append(
                     PanasonicCNSwitch(
                         coordinator,
-                        device.id,
+                        device,
                         entity_info
                     )
                 )
@@ -48,16 +50,18 @@ class PanasonicCNSwitch(SwitchEntity, CoordinatorEntity):
     def __init__(
         self,
         coordinator: PanasonicCNDataUpdateCoordinator,
-        device_id: str,
+        device: PanasonicDevice,
         entity_info: Dict[str, Any],
     ) -> None:
         """Initialize the switch."""
         super().__init__(coordinator)
-        self._device = coordinator.data[device_id]
+        self._device = device
         self._entity_info = entity_info
         self._attr_unique_id = f"{DOMAIN}_{entity_info['unique_id']}"
         self._attr_name = entity_info["name"]
-        
+        self.entity_id = f"switch.{DOMAIN}_{entity_info['unique_id']}"
+        self._data = None
+
         # Set icon based on entity function
         if "quick_freeze" in entity_info["unique_id"]:
             self._attr_icon = "mdi:snowflake"
@@ -71,7 +75,14 @@ class PanasonicCNSwitch(SwitchEntity, CoordinatorEntity):
     @property
     def is_on(self) -> bool:
         """Return true if the switch is on."""
-        return self._device.get_switch_state(self._entity_info["key"])
+        if self._data is None:
+            self._data = self._device.get_switch_state(self._entity_info["key"])
+        return self._data
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._data = self._device.get_switch_state(self._entity_info["key"])
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
@@ -90,4 +101,4 @@ class PanasonicCNSwitch(SwitchEntity, CoordinatorEntity):
             "manufacturer": "Panasonic",
             "model": self._device.sub_type,
             "sw_version": "0.0.1",
-        } 
+        }

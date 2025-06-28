@@ -18,7 +18,7 @@ FRIDGE_ENTITIES = {
                 "unique_id": "mode",
                 "key": "mode",
                 "name": "模式",
-                "items": [
+                "options": [
                     {
                         "name": "速冻",
                         "key": "quickFreeze"
@@ -82,9 +82,9 @@ FRIDGE_ENTITIES = {
                 "step": 1
             },
             {
-                "unique_id": "scs1_temp_set",
+                "unique_id": "scb1_temp_set",
                 "name": "软冻室设定温度",
-                "key": "SCS1TempSet",
+                "key": "SCB1TempSet",
                 "unit": "°C",
                 "min_value": -20,
                 "max_value": 10,
@@ -111,7 +111,7 @@ FRIDGE_ENTITIES = {
             "preservation": 0,
             "RAModeCur": 0,
             "SAModeCur": 0,
-            "isTodoLimit": 1
+            "isTodoLimit": 0
         }
     }
 }
@@ -152,7 +152,7 @@ class PanasonicFridge(PanasonicDevice):
 
         return ""
 
-    def parse_status(self, status: Dict[str, Any]) -> Dict[str, Any]:
+    def parse_form(self, status: Dict[str, Any]) -> Dict[str, Any]:
         """Parse device status.
         
         This method parses the raw status data from the fridge device into a standardized format.
@@ -198,21 +198,18 @@ class PanasonicFridge(PanasonicDevice):
 
         # Add switch entities
         for switch in entity_defs.get("select", []):
-            options = []
-            for item in switch["items"]:
-                options.append(item["key"])
             entity = {
                 "type": "select",
                 "unique_id": f"{self._id}_{switch['unique_id']}",
                 "name": f"{self._name} {switch['name']}",
                 "key": switch["key"],
-                "options": options,
+                "options": switch["options"],
             }
             entities.append(entity)
         
         # Add sensor entities
         for sensor in entity_defs.get("sensor", []):
-            if sensor["key"] in self._raw_status:
+            if sensor["key"] in self._status:
                 entities.append({
                     "type": "sensor",
                     "unique_id": f"{self._id}_{sensor['unique_id']}",
@@ -223,7 +220,7 @@ class PanasonicFridge(PanasonicDevice):
         
         # Add number entities
         for number in entity_defs.get("number", []):
-            if number["key"] in self._raw_status:
+            if number["key"] in self._status:
                 entities.append({
                     "type": "number",
                     "unique_id": f"{self._id}_{number['unique_id']}",

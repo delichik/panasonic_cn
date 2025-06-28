@@ -1,6 +1,7 @@
 """Panasonic CN API client."""
 from __future__ import annotations
 
+import traceback
 import logging
 import json
 from typing import Any, Dict, List, Optional
@@ -207,7 +208,7 @@ class PanasonicCNClient:
             _LOGGER.error("Authentication error: %s", err)
             return False
 
-    async def get_devices(self) -> List[Dict[str, Any]]:
+    async def get_devices(self) -> Dict[str, PanasonicDevice]:
         """Get list of bound devices.
         
         This method retrieves all devices bound to the current user account.
@@ -250,7 +251,7 @@ class PanasonicCNClient:
             
             if "error" in data:
                 _LOGGER.error("Failed to get devices: %s", data["error"])
-                return []
+                return {}
 
             # Create device instances
             self._devices.clear()
@@ -268,10 +269,10 @@ class PanasonicCNClient:
 
         except Exception as err:
             _LOGGER.error("Failed to get devices: %s", err)
-            return []
+            return {}
 
-    async def get_device_status(self, device_id: str) -> Optional[Dict[str, Any]]:
-        """Get device status."""
+    async def fetch_device_status(self, device_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch device status."""
         device = self._devices.get(device_id)
         if not device:
             _LOGGER.error("Device not found: %s", device_id)
@@ -319,8 +320,8 @@ class PanasonicCNClient:
                 return None
 
             # Use the device's parse_status method to handle the status
-            device.raw_status = data["results"]
-            return device.parsed_status
+            device.status = data["results"]
+            return device.status
 
         except Exception as err:
             _LOGGER.error("Failed to get device status: %s", err)
@@ -340,11 +341,12 @@ class PanasonicCNClient:
                 return False
             
             # Get current status
-            new_status = await self.get_device_status(device_id)
+            new_status = await self.fetch_device_status(device_id)
             # Update parameters to be modified
-            for key, value in kwargs:
+            for key, value in kwargs.items():
                 if key in new_status:
                     new_status[key] = value
+                    device.status[key] = value
 
             request = {
                 "id": self._generate_message_id(),
@@ -381,15 +383,10 @@ class PanasonicCNClient:
             if "error" in data:
                 _LOGGER.error("Failed to set device status: %s", data["error"])
                 return False
-
-            # Get current status again
-            new_status = await self.get_device_status(device_id)
-            # Update device status
-            device.raw_status = new_status
             return True
 
         except Exception as err:
-            _LOGGER.error("Failed to set device status: %s", err)
+            _LOGGER.error("Failed to set device status: %s\n%s", err, traceback.format_exc())
             return False
 
     async def close(self) -> None:

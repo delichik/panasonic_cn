@@ -22,7 +22,7 @@ def _sha512(text):
     """
     return hashlib.sha512(text.encode("utf-8")).hexdigest()
 
-class PanasonicClienIface(ABC):
+class PanasonicClientIface(ABC):
     """Interface for Panasonic CN client.
     
     This abstract class defines the interface that must be implemented
@@ -58,14 +58,14 @@ class PanasonicDevice(ABC):
         _sub_type: The device sub-type code
         _mno: The device model number
         _name: The device name
-        _raw_status: The raw device status data
+        _status: The raw device status data
         _client: The API client instance
         _cookie: The device-specific authentication cookie
         _cookie_create_time: The timestamp when the cookie was created
         _token: The device-specific authentication token
     """
 
-    def __init__(self, device_info: Dict[str, Any], client: PanasonicClienIface) -> None:
+    def __init__(self, device_info: Dict[str, Any], client: PanasonicClientIface) -> None:
         """Initialize device.
         
         Args:
@@ -77,7 +77,8 @@ class PanasonicDevice(ABC):
         self._sub_type = device_info["params"]["devSubTypeId"]
         self._mno = device_info["params"]["deviceMNO"]
         self._name = device_info["params"]["deviceName"]
-        self._raw_status: Dict[str, Any] = {}
+        self._status: Dict[str, Any] = {}
+        self._form: Dict[str, Any] = {}
         self._client = client
         self._cookie = ""
         self._cookie_create_time = 0
@@ -96,25 +97,25 @@ class PanasonicDevice(ABC):
         return self._id
 
     @property
-    def raw_status(self) -> Optional[Dict[str, Any]]:
+    def status(self) -> Optional[Dict[str, Any]]:
         """Return device status.
         
         Returns:
             Optional[Dict[str, Any]]: The raw device status data
         """
-        return self._raw_status
+        return self._status
     
     @property
-    def parsed_status(self) -> Dict[str, Any]:
-        """Parse device status.
+    def form(self) -> Dict[str, Any]:
+        """update form.
         
         Returns:
-            Dict[str, Any]: The parsed device status data
+            Dict[str, Any]: form
         """
-        return self._parsed_status
+        return self._form
 
-    @raw_status.setter
-    def raw_status(self, value: Dict[str, Any]) -> None:
+    @status.setter
+    def status(self, value: Dict[str, Any]) -> None:
         """Set device status.
         
         When setting the raw status, it also triggers parsing of the status data.
@@ -122,8 +123,8 @@ class PanasonicDevice(ABC):
         Args:
             value: The new raw status data
         """
-        self._parsed_status = self.parse_status(value)
-        self._raw_status = value
+        self._form = self.parse_form(value)
+        self._status = value
 
     @property
     def type(self) -> str:
@@ -178,8 +179,8 @@ class PanasonicDevice(ABC):
         pass
 
     @abstractmethod
-    def parse_status(self, status: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse device status.
+    def parse_form(self, status: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse device status to form.
         
         This method should be implemented by each device type to parse its specific
         status data into a standardized format.
@@ -204,7 +205,7 @@ class PanasonicDevice(ABC):
             - type: Entity type (switch, number, etc.)
             - unique_id: Unique identifier for the entity
             - name: Display name for the entity
-            - state_key: Key in raw_status for the entity's state
+            - state_key: Key in status for the entity's state
             - control_key: Key in params for controlling the entity
             - min_value: Minimum value (for number entities)
             - max_value: Maximum value (for number entities)
@@ -218,7 +219,7 @@ class PanasonicDevice(ABC):
         pass
 
     def get_value(self, key: str) -> Any:
-        """Get value from raw status.
+        """Get value from status.
         
         Args:
             key: The key to look up in the parsed status
@@ -226,28 +227,28 @@ class PanasonicDevice(ABC):
         Returns:
             Any: The value associated with the key, or None if not found
         """
-        return self._parsed_status.get(key)
+        return self._status.get(key)
     
-    def get_select_items(self, key: str) -> Dict[str, Dict[str, Any]]:
-        """Get select items from raw status.
+    def get_select_options(self, key: str) -> Dict[str, Dict[str, Any]]:
+        """Get select options from raw status.
         
         Args:
             key: The key of the select group
             
         Returns:
-            Dict[str, Dict[str, Any]]: Dictionary of items with their status
+            Dict[str, Dict[str, Any]]: Dictionary of options with their status
         """
-        items = {}
+        options = {}
         for select_group in self.get_preference()["select"]:
             if select_group["key"] == key:
-                for item in select_group["items"]:
-                    items[item["key"]] = {
-                        "key": item["key"],
-                        "name": item["name"],
-                        "status": self._parsed_status.get(item["key"], 0) == 1
+                for option in select_group["options"]:
+                    options[option["key"]] = {
+                        "key": option["key"],
+                        "name": option["name"],
+                        "status": self._status.get(option["key"], 0) == 1
                     }
                 break
-        return items
+        return options
 
     def get_switch_state(self, key: str) -> bool:
         """Get switch state from raw status.
@@ -258,7 +259,7 @@ class PanasonicDevice(ABC):
         Returns:
             bool: True if the switch is on (value is 1), False otherwise
         """
-        return self._parsed_status.get(key, 0) == 1
+        return self._status.get(key, 0) == 1
 
     def get_number_value(self, key: str) -> Optional[float]:
         """Get number value from raw status.
@@ -269,7 +270,7 @@ class PanasonicDevice(ABC):
         Returns:
             Optional[float]: The numeric value, or None if not found or invalid
         """
-        value = self._parsed_status.get(key)
+        value = self._status.get(key)
         if value is not None:
             try:
                 return float(value)

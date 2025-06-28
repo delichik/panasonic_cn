@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整的git历史
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Get Changelog
+        id: get_changelog
+        run: |
+          previous_tag=$(git tag --sort=-version:refname | grep -A 1 "${{ steps.get_version.outputs.tag }}" | tail -n 1)
+          if [ -z "$previous_tag" ]; then
+            # 如果是第一个tag，则获取所有提交历史
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            git log --pretty=format:"* %s (%h)" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            # 获取两个tag之间的提交历史
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            git log --pretty=format:"* %s (%h)" $previous_tag..${{ steps.get_version.outputs.tag }} >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create ZIP archive
+        run: |
+          cd custom_components
+          zip -r ../panasonic_cn.zip panasonic_cn
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.get_version.outputs.version }}
+          tag_name: ${{ steps.get_version.outputs.tag }}
+          body: |
+            ## What's Changed
+            ${{ steps.get_changelog.outputs.changelog }}
+            
+            ## Installation
+            1. Install HACS if you haven't already
+            2. Add this repository to HACS:
+               - URL: `https://github.com/OWNER/panasonic_cn`
+               - Category: `Integration`
+            3. Install the "Panasonic CN" integration
+            4. Restart Home Assistant
+            5. Add the integration through the Home Assistant UI
+
+          draft: false
+          prerelease: false
+          files: panasonic_cn.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

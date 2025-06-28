@@ -7,9 +7,11 @@ from typing import Any, Dict
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .api.devices.base import PanasonicDevice
 from .const import DOMAIN
 from .coordinator import PanasonicCNDataUpdateCoordinator
 
@@ -26,7 +28,7 @@ async def async_setup_entry(
     entities = []
     
     # Iterate through all devices
-    for device in coordinator.devices.values():
+    for device in coordinator.data.values():
         # Get list of supported entities for the device
         device_entities = device.get_entities()
         
@@ -36,7 +38,7 @@ async def async_setup_entry(
                 entities.append(
                     PanasonicCNSelect(
                         coordinator,
-                        device.id,
+                        device,
                         entity_info
                     )
                 )
@@ -47,25 +49,23 @@ class PanasonicCNSelect(SelectEntity, CoordinatorEntity):
     """Representation of a Panasonic CN select entity."""
 
     def __init__(
-        self,
-        coordinator: PanasonicCNDataUpdateCoordinator,
-        device_id: str,
-        entity_info: Dict[str, Any],
+            self,
+            coordinator: PanasonicCNDataUpdateCoordinator,
+            device: PanasonicDevice,
+            entity_info: Dict[str, Any],
     ) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator)
-        self._device = coordinator.data[device_id]
+        self._device = device
         self._entity_info = entity_info
         self._attr_unique_id = f"{DOMAIN}_{entity_info['unique_id']}"
         self._attr_name = entity_info["name"]
-        
-        # Get options from items
-        self._items = entity_info.get("items", [])
-        # Create a mapping of names to keys
-        self._name_to_key = {item["name"]: item["key"] for item in self._items}
-        # Set options to show names
+        self.entity_id = f"select.{DOMAIN}_{entity_info['unique_id']}"
+        self._options = entity_info.get("options", [])
+        self._name_to_key = {option["name"]: option["key"] for option in self._options}
         self._attr_options = list(self._name_to_key.keys())
-        
+        self._data = None
+
         # Set icon based on entity function
         if "mode" in entity_info["unique_id"]:
             self._attr_icon = "mdi:tune"
@@ -75,14 +75,29 @@ class PanasonicCNSelect(SelectEntity, CoordinatorEntity):
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
-        items = self._device.get_select_items(self._entity_info["key"])
+        if self._data is None:
+            items = self._device.get_select_options(self._entity_info["key"])
+            for item in items.values():
+                if item["status"]:
+                    # Return the name that corresponds to the active key
+                    for name, key in self._name_to_key.items():
+                        if key == item["key"]:
+                            self._data = name
+                            break
+        return self._data
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        items = self._device.get_select_options(self._entity_info["key"])
         for item in items.values():
             if item["status"]:
                 # Return the name that corresponds to the active key
                 for name, key in self._name_to_key.items():
                     if key == item["key"]:
-                        return name
-        return None
+                        self._data = name
+                        self.async_write_ha_state()
+                        return
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
@@ -90,13 +105,13 @@ class PanasonicCNSelect(SelectEntity, CoordinatorEntity):
         selected_key = self._name_to_key.get(option)
         if selected_key is None:
             return
-            
-        await self.coordinator.async_select_item(
+
+        await self.coordinator.async_select_option(
             self._device.id,
             self._entity_info["key"],
             selected_key
         )
-    
+
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device info."""
@@ -106,4 +121,4 @@ class PanasonicCNSelect(SelectEntity, CoordinatorEntity):
             "manufacturer": "Panasonic",
             "model": self._device.sub_type,
             "sw_version": "0.0.1",
-        } 
+        }

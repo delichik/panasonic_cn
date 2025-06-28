@@ -10,9 +10,11 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .api.devices.base import PanasonicDevice
 from .const import DOMAIN
 from .coordinator import PanasonicCNDataUpdateCoordinator
 
@@ -29,7 +31,7 @@ async def async_setup_entry(
     entities = []
     
     # Iterate through all devices
-    for device in coordinator.devices.values():
+    for device in coordinator.data.values():
         # Get list of supported entities for the device
         device_entities = device.get_entities()
         
@@ -39,7 +41,7 @@ async def async_setup_entry(
                 entities.append(
                     PanasonicCNSensor(
                         coordinator,
-                        device.id,
+                        device,
                         entity_info
                     )
                 )
@@ -52,28 +54,38 @@ class PanasonicCNSensor(SensorEntity, CoordinatorEntity):
     def __init__(
         self,
         coordinator: PanasonicCNDataUpdateCoordinator,
-        device_id: str,
+        device: PanasonicDevice,
         entity_info: Dict[str, Any],
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
-        self._device = coordinator.data[device_id]
+        self._device = device
         self._entity_info = entity_info
         self.coordinator = coordinator
         self._attr_unique_id = f"{DOMAIN}_{entity_info['unique_id']}"
         self._attr_name = entity_info["name"]
         self._attr_native_unit_of_measurement = entity_info.get("unit")
-        
+        self.entity_id = f"sensor.{DOMAIN}_{entity_info['unique_id']}"
+        self._data = None
+
         # Set icon based on entity type
         if "temp" in entity_info["unique_id"]:
             self._attr_icon = "mdi:thermometer"
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
         else:
             self._attr_icon = "mdi:information"
 
     @property
-    def native_value(self) -> Optional[float]:
-        """Return the state of the sensor."""
-        return self._device.get_value(self._entity_info["key"])
+    def native_value(self) -> float | None:
+        """Return the current value."""
+        if self._data is None:
+            self._data = self._device.get_number_value(self._entity_info["key"])
+        return self._data
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._data = self._device.get_number_value(self._entity_info["key"])
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -84,4 +96,4 @@ class PanasonicCNSensor(SensorEntity, CoordinatorEntity):
             "manufacturer": "Panasonic",
             "model": self._device.sub_type,
             "sw_version": "0.0.1",
-        } 
+        }
