@@ -1,11 +1,12 @@
 {
-    "domain": "panasonic_cn",
+    "domain": "panasonic",
     "name": "Panasonic CN",
     "documentation": "https://github.com/delichik/panasonic_cn",
     "dependencies": [],
     "codeowners": ["@delichik"],
     "requirements": ["httpx"],
     "version": "0.1.0",
+    "type": "hub",
     "config_flow": true,
     "iot_class": "cloud_polling"
-} 
+}

@@ -1,5 +1,7 @@
 {
-    "name": "Panasonic CN",
-    "homeassistant": "2024.4.4",
-    "hacs": "1.34.0"
+  "name": "Panasonic CN",
+  "homeassistant": "2024.4.4",
+  "hacs": "1.34.0",
+  "zip_release": true,
+  "filename": "panasonic_cn.zip"
 }
